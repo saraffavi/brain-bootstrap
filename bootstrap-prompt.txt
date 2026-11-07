@@ -1,0 +1,78 @@
+You are setting up my working system for building software with AI agents. Read all of this before doing anything, then ask me the four questions at the end, then build exactly what is described. Propose nothing else.
+
+THE IDEA
+A "brain" is a documents-only git repository that every person and every agent reads before working. It holds durable knowledge: design, decisions, status, open items, reviews, references. Code repositories hold only code, tests and fixtures. Chats are not memory; files are. Decisions are numbered files. There is one list of open items. Status is rewritten at the end of every session. Reviews are files written by a fresh-context reviewer at a few gates, not continuously. Guards are git hooks and tests, and a guard does not exist until a test that disables it fails.
+
+WHAT TO CREATE — THE BRAIN, at <brain-path>
+- INDEX.md: what lives where; a table of projects (project name -> brain folder -> code repo); the seven rules below; how each tool reaches the brain.
+- CLAUDE.md (rules for any session opened in the brain):
+  Read first: INDEX.md, then <project>/INDEX.md, STATUS/latest.md, TRACKER.md (Now, and the lines naming your task), and RULINGS/README.md — the one-line index — then only the rulings your task names. A cold start reads this entry set once; re-reads within a session are cached; what stays expensive is re-deriving a decision that is already a file.
+  Documents only: commit directly to main; no code, no secrets, no personal data about third parties.
+  Every document has a title, then a confidentiality line, then a dateline in italics. Stable file names; dates inside files.
+  A decision made in any session becomes <project>/RULINGS/NNNN-<slug>.md in the same turn, created with scripts/new-ruling.sh (never by hand, so the number is taken by listing the folder at that moment). Never renumber.
+  An open item goes to <project>/TRACKER.md and nowhere else.
+  Reviews go to <project>/REVIEWS/.
+  One active session per project: read <project>/.session.lock first; if it has agent= and started= under 12 hours old and no ended=, stop and tell me; otherwise write agent=<name> role=<build|review|advise> started=<ISO time>; append ended=<ISO time> when done. Never delete files; move them to _to_delete/.
+  End of every session: rewrite <project>/STATUS/latest.md (dated copy when something material changed); one line in practices/patterns.md saying what the session was in agentic-design terms; run scripts/sync.sh.
+  Rules are written agent-neutral ("the builder session", "the reviewer"); AGENTS.md is a symlink to CLAUDE.md so every tool reads the same file.
+- .gitignore: secrets (.env, .env.*), audio (*.m4a, *.wav, *.mp3), _to_delete/, .session.lock, .DS_Store.
+- scripts/sync.sh: git add -A; commit "sync <date> from <host>" if anything changed; push main to the remote named "origin"; say plainly if the push fails (history is safe locally).
+- scripts/new-ruling.sh <project> <slug> "<title>": lists <project>/RULINGS/, takes the next number, writes the template: "# NNNN — <title>", the confidentiality line, "<date> · (session) · Status: active", then **Decision.** **Why.** **Reopen when.** **Refs.**; appends one line "- NNNN — <title> · active" to RULINGS/README.md's Index section.
+- scripts/check-brain.sh: fails if any .md lacks the confidentiality line under its title, if a RULINGS file lacks the header shape, if STATUS/latest.md lacks "**As of <date> — <agent> session:", if TRACKER.md lacks the sections Now · Next · Decisions pending · Verify · Deferred · Done, or if a REVIEWS/gate-*.md lacks the four category headings and a "Verdict:" line; warns when TRACKER.md exceeds 60 KB (archive Done items older than 14 days to TRACKER-done.md). sync.sh runs it first.
+- practices/: patterns.md (empty, one line per session), agents.md (the roles and the one format, from the text below), testing-effort-scope.md (one paragraph: unit tests and review by default; adversarial work once, as fixtures, at the trust boundary each project names).
+- One folder per project, <project>/: INDEX.md (map of this project's docs), STATUS/latest.md (header "**As of <date> — <agent> session: <one line>.**", then Where things stand · Needs <owner> · Build state), TRACKER.md (the sections above; open items "- [ ] **<title>** (<source>, <date>): <text>"; closed "- [x] <date> — <text> (<pointer>)"), RULINGS/README.md (the format, and an Index section: one line per ruling), REVIEWS/README.md (one file per gate, named gate-<N>-<branch>.md; every finding cites file:line or a failing test and carries open · fixed (commit) · deferred (reason); "none" for an empty category; one-line verdict; a "## Re-check" heading for the re-check round), docs/ (empty), seed/ (the code-repo seed below).
+- Adding a project later: copy the project skeleton to a new folder, add its row to INDEX.md's table, run its setup.sh. practices/ is shared by every project; a lesson learned in one becomes a practice all of them read.
+- git init on main; first commit.
+
+WHAT TO CREATE — THE CODE-REPO SEED, one per project that has code, at <brain-path>/<project>/seed/, plus setup.sh that turns it into that project's <code-path>
+- CLAUDE.md (rules every session reads; tracked; must contain nothing that should not be public if the repo ever is):
+  Never commit on main; one feature branch per task; the owner merges with --no-ff after a gate.
+  Propose the plan as one message and wait for the owner's OK before creating files.
+  Tests before code; the test suite never touches the network; fixtures come from real inputs only — no synthetic fixtures — except that a rule's own shape may be probed with made-up input in its unit test, never committed as a fixture.
+  A guard — lint rule, hook, fail-closed check, manifest assertion — does not exist until a committed test disables or bypasses it and fails. The negative test is written first.
+  No invented APIs: pin versions; verify a function exists in the installed package before using it.
+  Secrets only in a git-ignored .env; never in a prompt, a commit or a chat.
+  Scratch files in a named scratch folder outside the repo, never /tmp. Never delete; move to _to_delete/.
+  Commit trailer "Agent: <tool> (<model>)"; never --no-verify; never rewrite pushed history.
+  End of session: STATUS/latest.md in the brain rewritten, the pattern line, the brain's sync.sh, ended= in the lock.
+  (The brain's location is NOT in this file. It is in a git-ignored CLAUDE.local.md — "the brain for this project is at <brain-path>/<project>; read its INDEX.md, STATUS/latest.md, TRACKER.md and RULINGS/ first" — and in each tool's global instructions.)
+- AGENTS.md -> symlink to CLAUDE.md.
+- .gitignore: .env, .env.*, CLAUDE.local.md, loop/ (run-time state), scratch and build outputs, any personal input files (name the folders).
+- .githooks/pre-commit: refuse a commit on main unless MERGE_HEAD exists (merges allowed); then run the repo's lint script if present. setup.sh sets core.hooksPath to .githooks after the first commit, then proves the guard by attempting an empty commit on main, which must be refused.
+- setup.sh: creates <code-path>, copies the seed, first commit on main, hooksPath, guard self-test, adds the remote if given.
+- docs/build-instructions.md in the brain project folder, with these prompts filled in generically:
+  Kickoff: read the brain first; one builder; deterministic checks first; a separate reviewer at gates only; the fixtures are the spec; propose the architecture as one message and wait.
+  Builder prompt for a branch: read the plan and the TRACKER lines it names; propose; wait; tests first; the plan's exit line is the definition of done; end per CLAUDE.md.
+  Gate prompt (a NEW session, fresh context): "You are reviewing, not building. Read CLAUDE.md, the scope doc, then ONLY the diff of <branch> against main plus STATUS/latest.md. Report findings in REVIEWS/gate-<N>-<branch>.md, most severe first, in exactly four categories: 1 trust boundary (anything leaving where it must not; logging of protected content); 2 guardrails (commits on main, --no-verify, unpinned or unverified APIs, synthetic fixtures — and for every guard added or changed, disable it in a scratch copy and confirm a test fails); 3 spec drift (anything not in the branch's specification or its exit line); 4 correctness of the rules this branch owns (break each clause in a throwaway copy and confirm a test fails; run the real fixtures through the branch with each user action applied). Every finding cites file:line or a failing test; 'consider' and 'might' are not findings; 'none' if empty; do not fix anything; end with MERGEABLE / MERGEABLE AFTER FIXES / NOT MERGEABLE."
+  Re-check: the fix for a must-fix finding gets a scoped re-check (fresh context, only the fix commits, categories 1 and 4) before the merge; a must-fix found there is fixed and re-checked once more; a third round sends the branch back to a full gate — that is a design problem, not a bug.
+  Attack prompt (once, after the rules exist): produce realistic adversarial inputs as fixtures with expected outputs, not commentary; the owner approves each before it enters the fixture set.
+
+AGENTS — one set of rules, read by every tool
+- Global instructions for each tool carry the same paragraph: every project has a brain at <brain-path>/<project>; read it first; check the session lock; the branch, secrets, scratch and delete rules above; formats from practices/agents.md; end-of-session steps.
+  Claude Code: ~/.claude/CLAUDE.md. Codex: ~/.codex/AGENTS.md.
+- Codex reads the same repo rules as Claude: set project_doc_fallback_filenames = ["CLAUDE.md"] in ~/.codex/config.toml so CLAUDE.md is read wherever AGENTS.md is absent. Print this config for me, with my paths:
+    approval_policy = "on-request"
+    sandbox_mode = "workspace-write"
+    project_doc_fallback_filenames = ["CLAUDE.md"]
+    history.persistence = "none"
+    [sandbox_workspace_write]
+    writable_roots = ["<brain-path>", "<scratch-path>"]
+    network_access = false
+    [projects."<code-path>"]
+    trust_level = "trusted"
+    [projects."<brain-path>"]
+    trust_level = "trusted"
+  With this, the directory Codex is launched in is writable plus the brain and the scratch folder; nothing else; no network (tests cannot reach it; a push becomes an approval). Launch in the brain to review; launch in the code repo to build. The rules never relax; the launch directory decides the role.
+- Roles: one builder at a time per repo; the other agent reviews (the reviewer is never the builder's model). Every session names its agent in the STATUS header, the lock and commit trailers.
+- Data: an agent sends what it reads to its provider. Before an agent reads the brain, confirm the account's data-use terms exclude training on the content, keep transcript stores off, and list what personal or privileged material the brain holds and which folders an agent must never read.
+
+WHAT YOU MUST NOT DO
+Do not write any design content, product decisions or fixtures — those are mine. Do not add tools, frameworks or dependencies. Do not create a hosted remote; print the commands for me. Do not run git push.
+
+THE FOUR QUESTIONS (ask, then wait)
+1. The projects to put in the brain now — a name and a short slug for each (one is fine; more can be added later; each gets its own folder and, if it has code, its own code repo).
+2. The brain path, and the code repo path for each project that has code.
+3. The remote for the brain and for the code repo (a private git remote you control; if it is a hosted service, say so and I will explain the rules for what may never be pushed).
+4. Which agents you use (Claude Code, Codex, both), so I write the matching global instruction files and print the config.
+
+Then build it, run setup.sh's guard self-test, and print: the tree you created, the by-hand steps (remote, hooks, agent configs, the confidentiality wording you want), and the first command to run.
